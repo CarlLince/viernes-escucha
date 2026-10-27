@@ -1,0 +1,12 @@
+
+# 2026-10-27 02:28:59.531853
++n
+
+# 2026-10-27 02:29:59.043311
++Lee el comentario al inicio de CaraFlotante.kt y aplícalo al AndroidManifest.xml: los permisos, usesCleartextTraffic y los dos componentes. Después, en el código que lanza Viernes, agrega startForegroundService(Intent(this, CaraFlotanteService::class.java)) con sus imports, usando el contexto correcto. No cambies nada más.
+
+# 2026-10-27 02:30:03.347037
++y
+
+# 2026-10-27 02:31:45.531455
++/exit
