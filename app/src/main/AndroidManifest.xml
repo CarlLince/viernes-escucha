@@ -13,7 +13,11 @@
         <package android:name="com.termux" />
     </queries>
 
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
     <application
+        android:usesCleartextTraffic="true"
         android:allowBackup="false"
         android:label="Viernes Escucha"
         android:theme="@android:style/Theme.DeviceDefault">
@@ -39,5 +43,28 @@
                 <action android:name="mx.viernes.escucha.FIN" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".CaraFlotanteService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Muestra el orbe de Viernes sobre otras apps" />
+        </service>
+        <activity
+            android:name=".BurbujaActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="viernes" android:host="cara" />
+            </intent-filter>
+        </activity>
+
     </application>
 </manifest>
