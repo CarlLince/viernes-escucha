@@ -11,6 +11,12 @@ object Estado {
     @Volatile var ultimaActivacion = "ninguna"
     @Volatile var descargando = false
 
+    /** Último golpe analizado por el detector (sirve para ajustar la sensibilidad). */
+    @Volatile var golpe = "ninguno"
+
+    /** Último motivo por el que se descartó un sonido. */
+    @Volatile var rechazo = "ninguno"
+
     /** Mientras Viernes está en marcha en Termux, la escucha se pausa hasta esta hora (ms). */
     @Volatile var pausaHastaMs = 0L
 

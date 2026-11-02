@@ -27,4 +27,17 @@ object Ajustes {
     fun guardarHorario(c: Context, inicio: Int, fin: Int) {
         prefs(c).edit().putInt("horaInicio", inicio).putInt("horaFin", fin).apply()
     }
+
+    /** Nivel de 1 (muy estricto) a 5 (muy sensible). */
+    fun sensibilidad(c: Context): Int = prefs(c).getInt("sensibilidad", 3).coerceIn(1, 5)
+
+    /** 2 aplausos normalmente; 3 para lugares ruidosos. */
+    fun aplausos(c: Context): Int = if (prefs(c).getInt("aplausos", 2) >= 3) 3 else 2
+
+    fun guardarAplausos(c: Context, sensibilidad: Int, aplausos: Int) {
+        prefs(c).edit()
+            .putInt("sensibilidad", sensibilidad.coerceIn(1, 5))
+            .putInt("aplausos", if (aplausos >= 3) 3 else 2)
+            .apply()
+    }
 }

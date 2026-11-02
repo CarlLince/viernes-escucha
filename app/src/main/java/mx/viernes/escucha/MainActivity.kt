@@ -11,9 +11,11 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 
@@ -23,6 +25,9 @@ class MainActivity : Activity() {
     private lateinit var comandoCampo: EditText
     private lateinit var inicioCampo: EditText
     private lateinit var finCampo: EditText
+    private lateinit var sensibilidadBarra: SeekBar
+    private lateinit var sensibilidadTexto: TextView
+    private lateinit var tresAplausos: CheckBox
     private val handler = Handler(Looper.getMainLooper())
     private val pad by lazy { (16 * resources.displayMetrics.density).toInt() }
 
@@ -56,9 +61,29 @@ class MainActivity : Activity() {
         agregarTexto(raiz, "Horario de escucha (horas de 0 a 24)")
         inicioCampo = agregarCampo(raiz, "Inicio", Ajustes.horaInicio(this).toString(), InputType.TYPE_CLASS_NUMBER)
         finCampo = agregarCampo(raiz, "Fin", Ajustes.horaFin(this).toString(), InputType.TYPE_CLASS_NUMBER)
+
+        agregarTexto(raiz, "Sensibilidad de los aplausos")
+        sensibilidadTexto = agregarTexto(raiz, etiquetaSensibilidad(Ajustes.sensibilidad(this)))
+        sensibilidadBarra = SeekBar(this)
+        sensibilidadBarra.max = 4
+        sensibilidadBarra.progress = Ajustes.sensibilidad(this) - 1
+        sensibilidadBarra.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                sensibilidadTexto.text = etiquetaSensibilidad(progress + 1)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        raiz.addView(sensibilidadBarra)
+        tresAplausos = CheckBox(this)
+        tresAplausos.text = "Pedir 3 aplausos (para lugares ruidosos)"
+        tresAplausos.isChecked = Ajustes.aplausos(this) == 3
+        raiz.addView(tresAplausos)
         agregarBoton(raiz, "Guardar ajustes") {
             guardar()
-            aviso("Ajustes guardados")
+            aviso("Ajustes guardados. Para aplicarlos: Detener y volver a Iniciar.")
         }
 
         agregarTexto(raiz, "Paso 3: escuchar", true)
@@ -143,6 +168,18 @@ class MainActivity : Activity() {
         val inicio = inicioCampo.text.toString().toIntOrNull()?.coerceIn(0, 23) ?: Ajustes.HORA_INICIO
         val fin = finCampo.text.toString().toIntOrNull()?.coerceIn(0, 24) ?: Ajustes.HORA_FIN
         Ajustes.guardarHorario(this, inicio, fin)
+        Ajustes.guardarAplausos(this, sensibilidadBarra.progress + 1, if (tresAplausos.isChecked) 3 else 2)
+    }
+
+    private fun etiquetaSensibilidad(nivel: Int): String {
+        val texto = when (nivel) {
+            1 -> "muy estricta: solo aplausos fuertes y solos"
+            2 -> "estricta"
+            3 -> "normal"
+            4 -> "sensible"
+            else -> "muy sensible: acepta aplausos suaves (más falsas alarmas)"
+        }
+        return "Nivel $nivel de 5: $texto"
     }
 
     private fun aviso(texto: String) {
@@ -167,6 +204,10 @@ class MainActivity : Activity() {
         sb.append("Volumen: pico ").append(Estado.picoActual).append(" / ruido ").append(Estado.ruido).append('\n')
         sb.append("Última activación: ").append(Estado.ultimaActivacion).append('\n')
         sb.append("Horario: ").append(inicio).append(":00 a ").append(fin).append(":00").append('\n')
+        sb.append("Aplausos pedidos: ").append(Ajustes.aplausos(this))
+            .append(" (sensibilidad ").append(Ajustes.sensibilidad(this)).append(" de 5)").append('\n')
+        sb.append("Último golpe: ").append(Estado.golpe).append('\n')
+        sb.append("Último rechazo: ").append(Estado.rechazo).append('\n')
         if (Estado.mensaje.isNotEmpty()) sb.append("Mensaje: ").append(Estado.mensaje).append('\n')
         return sb.toString()
     }

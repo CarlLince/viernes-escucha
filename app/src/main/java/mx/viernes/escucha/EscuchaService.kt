@@ -21,6 +21,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import org.json.JSONObject
 import org.vosk.LibVosk
 import org.vosk.LogLevel
 import org.vosk.Model
@@ -42,7 +43,20 @@ class EscuchaService : Service() {
         private const val TAMANO_BLOQUE = 512
         private const val VENTANA_PALABRA_MS = 5000
         private const val PAUSA_MAXIMA_MS = 10 * 60 * 1000L
-        private const val GRAMATICA = "[\"viernes\", \"[unk]\"]"
+        private const val DESCANSO_MS = 10_000L
+
+        /** «viernes» más palabras parecidas y muy comunes, para que el habla normal no se confunda con ella. */
+        private val GRAMATICA: String = (
+            listOf(
+                "viernes", "vienes", "viene", "bienes", "tienes", "quieres", "fines",
+                "jueves", "lunes", "martes", "sábado", "domingo",
+                "que", "de", "la", "el", "en", "y", "a", "los", "se", "no", "un", "por", "con", "una",
+                "su", "para", "es", "al", "lo", "como", "más", "pero", "sus", "le", "ya", "o", "este",
+                "sí", "porque", "esta", "muy", "sin", "sobre", "también", "me", "hasta", "hay", "donde",
+                "todo", "nos", "entonces", "bueno", "bien", "pues", "gracias", "hola", "vamos", "ahora",
+                "aquí", "así", "esto", "eso", "ver", "ser", "tiene", "cuando", "siempre", "si", "te", "mi", "tu"
+            ) + "[unk]"
+            ).joinToString(",", "[", "]") { "\"$it\"" }
     }
 
     @Volatile private var detener = false
@@ -81,7 +95,7 @@ class EscuchaService : Service() {
         Estado.pausaHastaMs = 0L
         Estado.reanudar = false
         Estado.mensaje = ""
-        val nuevo = Thread({ bucle(finMs) }, "escucha-viernes")
+        val nuevo = Thread({ bucle(finMs, minutos > 0) }, "escucha-viernes")
         hilo = nuevo
         nuevo.start()
         return START_NOT_STICKY
@@ -107,7 +121,7 @@ class EscuchaService : Service() {
         val abrirIntent = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), flags)
         val notificacion = Notification.Builder(this, CANAL)
             .setContentTitle("Viernes está escuchando")
-            .setContentText("Aplaude dos veces y di «viernes»")
+            .setContentText("Aplaude " + (if (Ajustes.aplausos(this) == 3) "tres" else "dos") + " veces y di «viernes»")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(abrirIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Detener", detenerIntent)
@@ -215,7 +229,29 @@ class EscuchaService : Service() {
 
     // ---------------------------------------------------------------- bucle principal
 
-    private fun bucle(finMs: Long) {
+    private fun dentroDeHorario(): Boolean {
+        val hora = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return hora >= Ajustes.horaInicio(this) && hora < Ajustes.horaFin(this)
+    }
+
+    /** 1 = dijo «viernes» y nada más; -1 = dijo otra cosa; 0 = solo ruido o sonido desconocido. */
+    private fun evaluarPalabra(json: String): Int {
+        val texto = try {
+            JSONObject(json).optString("text", "")
+        } catch (e: Exception) {
+            ""
+        }
+        val tokens = texto.split(" ").filter { it.isNotBlank() }
+        val desconocidas = tokens.count { it == "[unk]" }
+        val palabras = tokens.filter { it != "[unk]" }
+        return when {
+            palabras.isEmpty() -> 0
+            desconocidas <= 1 && palabras.size <= 2 && palabras.all { it == "viernes" } -> 1
+            else -> -1
+        }
+    }
+
+    private fun bucle(finMs: Long, sinHorario: Boolean) {
         val modelo = cargarModelo()
         val reconocedor = if (modelo != null) crearReconocedor(modelo) else null
         val msPorBloque = TAMANO_BLOQUE * 1000 / FRECUENCIA
@@ -229,13 +265,28 @@ class EscuchaService : Service() {
         try {
             grabador.startRecording()
             val bloque = ShortArray(TAMANO_BLOQUE)
-            val detector = DetectorAplausos(msPorBloque)
+            val detector = DetectorAplausos(Ajustes.sensibilidad(this), Ajustes.aplausos(this))
             val maxBloquesPalabra = VENTANA_PALABRA_MS / msPorBloque
             var esperandoPalabra = false
             var bloquesPalabra = 0
+            var desconocidos = 0
+            var descansoHastaMs = 0L
             Estado.fase = "Esperando aplausos"
 
+            // Cierra la ventana de la palabra sin activar Viernes y se toma un descanso.
+            fun descansar(motivo: String) {
+                esperandoPalabra = false
+                Estado.rechazo = motivo
+                detector.reiniciar()
+                descansoHastaMs = System.currentTimeMillis() + DESCANSO_MS
+                Estado.fase = "Descanso"
+            }
+
             while (!detener && System.currentTimeMillis() < finMs) {
+                if (!sinHorario && !dentroDeHorario()) {
+                    Estado.mensaje = "Terminó el horario de escucha."
+                    break
+                }
                 if (Estado.pausaHastaMs > 0L) {
                     // Viernes está en marcha: se suelta el micrófono hasta que termine.
                     grabador.stop()
@@ -251,14 +302,22 @@ class EscuchaService : Service() {
                     if (detener || System.currentTimeMillis() >= finMs) break
                     detector.reiniciar()
                     esperandoPalabra = false
+                    descansoHastaMs = System.currentTimeMillis() + DESCANSO_MS
+                    Estado.fase = "Descanso"
                     grabador.startRecording()
-                    Estado.fase = "Esperando aplausos"
                     continue
                 }
 
                 if (!leerBloque(grabador, bloque)) {
                     if (!detener) Estado.mensaje = "Error al leer el micrófono."
                     break
+                }
+
+                if (descansoHastaMs > 0L) {
+                    if (System.currentTimeMillis() < descansoHastaMs) continue
+                    descansoHastaMs = 0L
+                    detector.reiniciar()
+                    Estado.fase = "Esperando aplausos"
                 }
 
                 val dobleAplauso = detector.procesar(bloque, TAMANO_BLOQUE)
@@ -274,22 +333,35 @@ class EscuchaService : Service() {
                             reconocedor.reset()
                             esperandoPalabra = true
                             bloquesPalabra = 0
+                            desconocidos = 0
                             Estado.fase = "Di «viernes»…"
                             pitido()
                         }
                     }
                 } else if (reconocedor != null) {
-                    val terminado = reconocedor.acceptWaveForm(bloque, TAMANO_BLOQUE)
-                    val json = if (terminado) reconocedor.result else reconocedor.partialResult
-                    if (json.contains("viernes")) {
-                        esperandoPalabra = false
-                        activar("palabra clave")
-                    } else {
-                        bloquesPalabra++
-                        if (bloquesPalabra >= maxBloquesPalabra) {
+                    bloquesPalabra++
+                    if (reconocedor.acceptWaveForm(bloque, TAMANO_BLOQUE)) {
+                        val json = reconocedor.result
+                        when (evaluarPalabra(json)) {
+                            1 -> {
+                                esperandoPalabra = false
+                                activar("palabra clave")
+                            }
+                            -1 -> descansar("dijo otra cosa, no «viernes»")
+                            else -> {
+                                if (json.contains("[unk]")) {
+                                    desconocidos++
+                                    if (desconocidos >= 2) descansar("habla continua, no «viernes»")
+                                }
+                            }
+                        }
+                    }
+                    if (esperandoPalabra && bloquesPalabra >= maxBloquesPalabra) {
+                        if (evaluarPalabra(reconocedor.finalResult) == 1) {
                             esperandoPalabra = false
-                            detector.reiniciar()
-                            Estado.fase = "Esperando aplausos"
+                            activar("palabra clave")
+                        } else {
+                            descansar("no dijo «viernes» a tiempo")
                         }
                     }
                 }
