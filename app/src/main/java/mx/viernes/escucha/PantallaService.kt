@@ -38,6 +38,12 @@ class PantallaService : AccessibilityService() {
         @Volatile
         var conectado = false
 
+        @Volatile
+        var ultimaApp = ""
+
+        @Volatile
+        var ultimaAppHora = 0L
+
         private val RIESGO = Regex(
             "elimin|borrar|suprim|desinstal|vaciar|formatear|restablec|delete|remove|erase|uninstall|" +
                 "factory reset|wipe|pagar|comprar|suscrib|donar|transferir|enviar dinero|" +
@@ -56,7 +62,18 @@ class PantallaService : AccessibilityService() {
         arrancarServidor()
     }
 
-    override fun onAccessibilityEvent(evento: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(evento: AccessibilityEvent?) {
+        if (evento == null || evento.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val paquete = evento.packageName?.toString() ?: return
+        val ignorar = paquete == packageName || paquete == "android" || paquete == "com.termux" ||
+            paquete == "com.termux.api" || paquete == "com.google.android.gms" ||
+            paquete.startsWith("com.android.systemui") || paquete.contains("launcher", true) ||
+            paquete.contains("inputmethod", true) || paquete.contains("permissioncontroller", true)
+        if (!ignorar) {
+            ultimaApp = paquete
+            ultimaAppHora = System.currentTimeMillis()
+        }
+    }
 
     override fun onInterrupt() {}
 
@@ -133,6 +150,7 @@ class PantallaService : AccessibilityService() {
             "desplazar" -> desplazar(p)
             "escribir" -> escribir(p)
             "tecla" -> tecla(p)
+            "ultima" -> ultima()
             else -> fallo("Comando desconocido")
         }
     }
@@ -147,6 +165,17 @@ class PantallaService : AccessibilityService() {
             "Parece borrar, pagar o suscribirse («" + que + "»). Pregunta al usuario y solo si dice que sí repite con --confirmo."
         )
 
+    private fun haceCuanto(): String {
+        val s = (System.currentTimeMillis() - ultimaAppHora) / 1000
+        return if (s < 120) "hace " + s + " s" else "hace " + (s / 60) + " min"
+    }
+
+    /** La última app "de verdad" que el usuario tuvo al frente (sin contar Termux, el teclado ni el launcher). */
+    private fun ultima(): JSONObject {
+        if (ultimaApp.isEmpty()) return fallo("Aún no sé qué app estabas usando antes de Termux")
+        return respuestaOk().put("app", ultimaApp).put("hace", (System.currentTimeMillis() - ultimaAppHora) / 1000)
+    }
+
     // ---------------------------------------------------------------- leer la pantalla
 
     private fun leer(): JSONObject {
@@ -154,7 +183,8 @@ class PantallaService : AccessibilityService() {
             ?: return fallo("No pude leer la pantalla (¿está bloqueada o la app la protege?)")
         val m = resources.displayMetrics
         val lineas = ArrayList<String>()
-        lineas.add("APP: " + raiz.packageName + " | PANTALLA: " + m.widthPixels + "x" + m.heightPixels)
+        val previa = if (ultimaApp.isNotEmpty()) " | ULTIMA_APP: " + ultimaApp + " (" + haceCuanto() + ")" else ""
+        lineas.add("APP: " + raiz.packageName + previa + " | PANTALLA: " + m.widthPixels + "x" + m.heightPixels)
         recorrer(raiz, 0, lineas)
         if (lineas.size >= MAX_LINEAS) lineas.add("... (hay más; usa desplazar y vuelve a leer)")
         return respuestaOk().put("texto", lineas.joinToString("\n"))
