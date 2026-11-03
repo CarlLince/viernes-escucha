@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     private lateinit var sensibilidadBarra: SeekBar
     private lateinit var sensibilidadTexto: TextView
     private lateinit var tresAplausos: CheckBox
+    private lateinit var pantallaCasilla: CheckBox
     private val handler = Handler(Looper.getMainLooper())
     private val pad by lazy { (16 * resources.displayMetrics.density).toInt() }
 
@@ -85,6 +86,15 @@ class MainActivity : Activity() {
             guardar()
             aviso("Ajustes guardados. Para aplicarlos: Detener y volver a Iniciar.")
         }
+
+        agregarTexto(raiz, "Control de pantalla (opcional)", true)
+        agregarBoton(raiz, "1. Activar el servicio «Viernes (pantalla)»") { abrirAccesibilidad() }
+        agregarBoton(raiz, "2. Vincular pantalla con Termux") { vincularPantalla() }
+        pantallaCasilla = CheckBox(this)
+        pantallaCasilla.text = "Permitir que Viernes lea la pantalla y toque"
+        pantallaCasilla.isChecked = Ajustes.pantallaPermitida(this)
+        pantallaCasilla.setOnCheckedChangeListener { _, marcado -> Ajustes.guardarPantallaPermitida(this, marcado) }
+        raiz.addView(pantallaCasilla)
 
         agregarTexto(raiz, "Paso 3: escuchar", true)
         agregarBoton(raiz, "Probar 30 minutos (sin horario)") { iniciar(30) }
@@ -182,6 +192,27 @@ class MainActivity : Activity() {
         return "Nivel $nivel de 5: $texto"
     }
 
+    private fun abrirAccesibilidad() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            aviso("Busca «Viernes (pantalla)» y actívalo. Si no te deja: Información de la app, menú ⋮, «Permitir ajustes restringidos».")
+        } catch (e: Exception) {
+            aviso("No pude abrir los ajustes de accesibilidad: " + e.message)
+        }
+    }
+
+    private fun vincularPantalla() {
+        val clave = Ajustes.pantallaToken(this)
+        val comando = "mkdir -p ~/.viernes && umask 077 && printf '%s' '" + clave + "' > ~/.viernes/pantalla_token && " +
+            "echo 'Pantalla vinculada con Viernes'; sleep 3"
+        val error = TermuxLauncher.lanzar(this, comando)
+        if (error == null) {
+            Ajustes.guardarPantallaPermitida(this, true)
+            pantallaCasilla.isChecked = true
+        }
+        aviso(error ?: "Vinculado. Ya puedes probar en Termux: python ~/viernes/pantalla.py leer")
+    }
+
     private fun aviso(texto: String) {
         Toast.makeText(this, texto, Toast.LENGTH_LONG).show()
     }
@@ -208,6 +239,14 @@ class MainActivity : Activity() {
             .append(" (sensibilidad ").append(Ajustes.sensibilidad(this)).append(" de 5)").append('\n')
         sb.append("Último golpe: ").append(Estado.golpe).append('\n')
         sb.append("Último rechazo: ").append(Estado.rechazo).append('\n')
+        val estadoPantalla = if (!PantallaService.conectado) {
+            "servicio sin activar (Ajustes > Accesibilidad)"
+        } else if (Ajustes.pantallaPermitida(this)) {
+            "activo"
+        } else {
+            "servicio listo, pero la casilla está apagada"
+        }
+        sb.append("Control de pantalla: ").append(estadoPantalla).append('\n')
         if (Estado.mensaje.isNotEmpty()) sb.append("Mensaje: ").append(Estado.mensaje).append('\n')
         return sb.toString()
     }

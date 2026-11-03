@@ -40,4 +40,22 @@ object Ajustes {
             .putInt("aplausos", if (aplausos >= 3) 3 else 2)
             .apply()
     }
+
+    /** Casilla general: si está apagada, el servicio de pantalla no obedece a nadie. */
+    fun pantallaPermitida(c: Context): Boolean = prefs(c).getBoolean("pantallaPermitida", false)
+
+    fun guardarPantallaPermitida(c: Context, valor: Boolean) {
+        prefs(c).edit().putBoolean("pantallaPermitida", valor).apply()
+    }
+
+    /** Clave que Termux debe mandar para controlar la pantalla (se crea sola la primera vez). */
+    fun pantallaToken(c: Context): String {
+        val actual = prefs(c).getString("pantallaToken", null)
+        if (!actual.isNullOrEmpty()) return actual
+        val bytes = ByteArray(24)
+        java.security.SecureRandom().nextBytes(bytes)
+        val nueva = bytes.joinToString("") { "%02x".format(it) }
+        prefs(c).edit().putString("pantallaToken", nueva).apply()
+        return nueva
+    }
 }

@@ -66,5 +66,17 @@
             </intent-filter>
         </activity>
 
+            <service
+            android:name="mx.viernes.escucha.PantallaService"
+            android:exported="true"
+            android:label="Viernes (pantalla)"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/pantalla_config" />
+        </service>
     </application>
 </manifest>
