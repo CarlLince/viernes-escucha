@@ -67,7 +67,7 @@ class PantallaService : AccessibilityService() {
         val paquete = evento.packageName?.toString() ?: return
         val ignorar = paquete == packageName || paquete == "android" || paquete == "com.termux" ||
             paquete == "com.termux.api" || paquete == "com.google.android.gms" ||
-            paquete.startsWith("com.android.systemui") || paquete.contains("launcher", true) ||
+            paquete.contains("systemui", true) || paquete.startsWith("com.miui.home") || paquete.contains("lbe.security", true) || paquete.contains("launcher", true) ||
             paquete.contains("inputmethod", true) || paquete.contains("permissioncontroller", true)
         if (!ignorar) {
             ultimaApp = paquete

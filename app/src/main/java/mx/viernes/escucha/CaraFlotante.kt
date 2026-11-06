@@ -59,7 +59,13 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.WebViewClient
+import org.json.JSONObject
 import android.widget.FrameLayout
 import java.net.HttpURLConnection
 import java.net.URL
@@ -72,6 +78,7 @@ class CaraFlotanteService : Service() {
     private var wm: WindowManager? = null
     private var burbuja: FrameLayout? = null
     private var web: WebView? = null
+    private var orbe: OrbeView? = null
     private val ui = Handler(Looper.getMainLooper())
     private var fallos = 0
 
@@ -175,13 +182,33 @@ class CaraFlotanteService : Service() {
             }
         }
 
-        val pagina = WebView(this)
-        pagina.setBackgroundColor(Color.BLACK)
-        pagina.settings.javaScriptEnabled = true
-        pagina.isVerticalScrollBarEnabled = false
-        pagina.isHorizontalScrollBarEnabled = false
-        pagina.loadUrl("$BASE/?mini=1")
-        raiz.addView(pagina, FrameLayout.LayoutParams(-1, -1))
+        var pagina: WebView? = null
+        try {
+            val p = WebView(this)
+            p.setBackgroundColor(Color.BLACK)
+            p.settings.javaScriptEnabled = true
+            p.isVerticalScrollBarEnabled = false
+            p.isHorizontalScrollBarEnabled = false
+            p.webViewClient = object : WebViewClient() {
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                    if (request?.isForMainFrame == true) ui.post { usarOrbeNativo() }
+                }
+
+                override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                    if (request?.isForMainFrame == true) ui.post { usarOrbeNativo() }
+                }
+
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    ui.post { usarOrbeNativo() }
+                    return true
+                }
+            }
+            p.loadUrl("$BASE/?mini=1")
+            raiz.addView(p, FrameLayout.LayoutParams(-1, -1))
+            pagina = p
+        } catch (e: Exception) {
+            pagina = null
+        }
 
         // Capa transparente que recibe los gestos (el WebView no necesita toques).
         val capa = View(this)
@@ -232,6 +259,49 @@ class CaraFlotanteService : Service() {
         manager.addView(raiz, lp)
         burbuja = raiz
         web = pagina
+        if (pagina == null) {
+            usarOrbeNativo()
+        } else {
+            // Si la cara web no termina de cargar (WebView viejo o bloqueado), se usa el orbe propio.
+            ui.postDelayed({
+                val actual = web
+                if (actual != null && actual.progress < 100) usarOrbeNativo()
+            }, 10000L)
+        }
+    }
+
+    // Orbe propio: se usa si el WebView no puede mostrar la cara web; sigue el estado de Viernes.
+    private val sondeo = object : Runnable {
+        override fun run() {
+            thread {
+                val estado = leerEstado()
+                ui.post {
+                    orbe?.estado = estado
+                    ui.postDelayed(this, 700L)
+                }
+            }
+        }
+    }
+
+    private fun leerEstado(): String = try {
+        val c = URL("$BASE/estado").openConnection() as HttpURLConnection
+        c.connectTimeout = 800
+        c.readTimeout = 800
+        val cuerpo = c.inputStream.bufferedReader().use { it.readText() }
+        c.disconnect()
+        JSONObject(cuerpo).optString("estado", "reposo")
+    } catch (e: Exception) {
+        "reposo"
+    }
+
+    private fun usarOrbeNativo() {
+        val raiz = burbuja ?: return
+        if (orbe != null) return
+        val nuevo = OrbeView(this)
+        raiz.addView(nuevo, 0, FrameLayout.LayoutParams(-1, -1))
+        orbe = nuevo
+        web?.visibility = View.GONE
+        ui.post(sondeo)
     }
 
     override fun onDestroy() {

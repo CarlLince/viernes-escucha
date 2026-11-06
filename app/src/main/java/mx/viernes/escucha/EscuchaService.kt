@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -192,6 +193,26 @@ class EscuchaService : Service() {
         return grabador
     }
 
+    /** Viernes pide oír: esta app abre el micrófono y le manda el audio hasta que él cuelgue. */
+    private fun transmitirMic(grabador: AudioRecord, bloque: ShortArray, oyente: Socket) {
+        try {
+            grabador.startRecording()
+            while (!detener && !Estado.reanudar && MicServidor.cliente === oyente) {
+                if (!leerBloque(grabador, bloque)) break
+                if (!MicServidor.enviar(bloque)) break
+            }
+        } catch (e: Exception) {
+            // el micrófono se cerró
+        } finally {
+            try {
+                grabador.stop()
+            } catch (e: Exception) {
+                // ya estaba detenido
+            }
+            MicServidor.soltar(oyente)
+        }
+    }
+
     private fun leerBloque(grabador: AudioRecord, destino: ShortArray): Boolean {
         var total = 0
         while (total < destino.size) {
@@ -266,6 +287,7 @@ class EscuchaService : Service() {
             grabador.startRecording()
             val bloque = ShortArray(TAMANO_BLOQUE)
             val detector = DetectorAplausos(Ajustes.sensibilidad(this), Ajustes.aplausos(this))
+            MicServidor.arrancar(this)
             val maxBloquesPalabra = VENTANA_PALABRA_MS / msPorBloque
             var esperandoPalabra = false
             var bloquesPalabra = 0
@@ -295,7 +317,12 @@ class EscuchaService : Service() {
                         System.currentTimeMillis() < Estado.pausaHastaMs &&
                         System.currentTimeMillis() < finMs
                     ) {
-                        Thread.sleep(500)
+                        val oyente = MicServidor.cliente
+                        if (oyente != null) {
+                            transmitirMic(grabador, bloque, oyente)
+                        } else {
+                            Thread.sleep(100)
+                        }
                     }
                     Estado.pausaHastaMs = 0L
                     Estado.reanudar = false
@@ -312,6 +339,7 @@ class EscuchaService : Service() {
                     if (!detener) Estado.mensaje = "Error al leer el micrófono."
                     break
                 }
+                MicServidor.enviar(bloque)
 
                 if (descansoHastaMs > 0L) {
                     if (System.currentTimeMillis() < descansoHastaMs) continue
@@ -377,6 +405,7 @@ class EscuchaService : Service() {
             } catch (e: Exception) {
                 // ya estaba detenido
             }
+            MicServidor.parar()
             grabador.release()
             reconocedor?.close()
             modelo?.close()
