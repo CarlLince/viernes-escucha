@@ -147,6 +147,7 @@ class PantallaService : AccessibilityService() {
             "tocar" -> tocar(p)
             "tocar_texto" -> tocarTexto(p)
             "deslizar" -> deslizar(p)
+        "multi" -> multi(p)
             "desplazar" -> desplazar(p)
             "escribir" -> escribir(p)
             "tecla" -> tecla(p)
@@ -399,6 +400,60 @@ class PantallaService : AccessibilityService() {
     private fun deslizar(p: JSONObject): JSONObject {
         val ms = p.optLong("ms", 300L).coerceIn(50L, 3000L)
         return gesto(trazo(p.optInt("x1"), p.optInt("y1"), p.optInt("x2"), p.optInt("y2"), ms))
+    }
+
+    private fun gestoMulti(g: GestureDescription, esperaMs: Long): JSONObject {
+        val fin = CountDownLatch(1)
+        val exito = AtomicBoolean(false)
+        val enviado = dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                exito.set(true)
+                fin.countDown()
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                fin.countDown()
+            }
+        }, null)
+        if (!enviado) return fallo("Android rechazó el gesto")
+        fin.await(esperaMs + 1000L, TimeUnit.MILLISECONDS)
+        return if (exito.get()) respuestaOk() else fallo("El gesto no se completó")
+    }
+
+    private fun multi(p: JSONObject): JSONObject {
+        val app = p.optString("app", "")
+        if (app.isEmpty()) return fallo("Falta el nombre de la app (app)")
+        val raiz = rootInActiveWindow ?: return fallo("No pude leer la pantalla")
+        if (raiz.packageName?.toString() != app) {
+            return fallo("La app en primer plano no es " + app)
+        }
+        val trazos = p.optJSONArray("trazos") ?: return fallo("Faltan los trazos")
+        if (trazos.length() < 1 || trazos.length() > 4) {
+            return fallo("Debe haber entre 1 y 4 trazos")
+        }
+        val m = resources.displayMetrics
+        val b = GestureDescription.Builder()
+        var finMs = 0L
+        for (i in 0 until trazos.length()) {
+            val t = trazos.optJSONObject(i) ?: return fallo("Trazo inválido")
+            val x1 = t.optInt("x1", -1)
+            val y1 = t.optInt("y1", -1)
+            val x2 = t.optInt("x2", x1)
+            val y2 = t.optInt("y2", y1)
+            if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 ||
+                x1 >= m.widthPixels || x2 >= m.widthPixels ||
+                y1 >= m.heightPixels || y2 >= m.heightPixels) {
+                return fallo("Coordenadas fuera de la pantalla")
+            }
+            val ini = t.optLong("ini", 0L).coerceIn(0L, 3000L)
+            val ms = t.optLong("ms", 100L).coerceIn(10L, 3500L)
+            val camino = android.graphics.Path()
+            camino.moveTo(x1.toFloat(), y1.toFloat())
+            camino.lineTo(x2.toFloat(), y2.toFloat())
+            b.addStroke(GestureDescription.StrokeDescription(camino, ini, ms))
+            if (ini + ms > finMs) finMs = ini + ms
+        }
+        return gestoMulti(b.build(), finMs)
     }
 
     private fun desplazar(p: JSONObject): JSONObject {
