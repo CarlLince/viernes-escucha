@@ -398,7 +398,7 @@ class PantallaService : AccessibilityService() {
     }
 
     private fun deslizar(p: JSONObject): JSONObject {
-        val ms = p.optLong("ms", 300L).coerceIn(50L, 3000L)
+        val ms = p.optLong("ms", 300L).coerceIn(50L, 15000L)
         return gesto(trazo(p.optInt("x1"), p.optInt("y1"), p.optInt("x2"), p.optInt("y2"), ms))
     }
 
