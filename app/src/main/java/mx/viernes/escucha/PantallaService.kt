@@ -152,6 +152,7 @@ class PantallaService : AccessibilityService() {
             "escribir" -> escribir(p)
             "tecla" -> tecla(p)
             "ultima" -> ultima()
+            "ventana" -> ventana(p)
             else -> fallo("Comando desconocido")
         }
     }
@@ -479,6 +480,12 @@ class PantallaService : AccessibilityService() {
         args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, previo + texto)
         val exito = campo.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         return if (exito) respuestaOk() else fallo("No pude escribir en ese campo")
+    }
+
+    private fun ventana(p: JSONObject): JSONObject {
+        val seg = p.optInt("segundos", 0)
+        val err = EscuchaService.abrirVentanaSoloViernes(seg)
+        return if (err == null) respuestaOk() else fallo(err)
     }
 
     private fun tecla(p: JSONObject): JSONObject {
