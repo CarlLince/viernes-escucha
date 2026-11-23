@@ -37,6 +37,7 @@ class EscuchaService : Service() {
 
     companion object {
         const val EXTRA_MINUTOS = "minutos"
+        const val EXTRA_SEGUNDOS_VENTANA = "segundos_ventana"
         const val ACCION_DETENER = "mx.viernes.escucha.DETENER"
         private const val CANAL = "escucha"
         private const val ID_NOTIFICACION = 1
@@ -49,17 +50,32 @@ class EscuchaService : Service() {
         @Volatile
         var ventanaHastaMs: Long = 0L
 
-        fun abrirVentanaSoloViernes(segundos: Int): String? {
-            if (!Estado.escuchando) {
-                return "EscuchaService no está activo"
-            }
-            val ahora = System.currentTimeMillis()
-            if (ventanaHastaMs > ahora) {
-                return "Ya hay una ventana abierta"
-            }
+        fun abrirVentanaSoloViernes(contexto: android.content.Context, segundos: Int): String? {
             val n = segundos.coerceIn(5, 300)
+            val ahora = System.currentTimeMillis()
+            if (Estado.escuchando) {
+                if (ventanaHastaMs > ahora) {
+                    return "Ya hay una ventana abierta"
+                }
+                ventanaHastaMs = ahora + n * 1000L
+                return null
+            }
+
             ventanaHastaMs = ahora + n * 1000L
-            return null
+            val intent = Intent(contexto, EscuchaService::class.java).apply {
+                putExtra(EXTRA_SEGUNDOS_VENTANA, n)
+            }
+            return try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    contexto.startForegroundService(intent)
+                } else {
+                    contexto.startService(intent)
+                }
+                null
+            } catch (e: Exception) {
+                ventanaHastaMs = 0L
+                "No se pudo iniciar EscuchaService desde segundo plano: " + e.message
+            }
         }
 
         /** «viernes» más palabras parecidas y muy comunes, para que el habla normal no se confunda con ella. */
@@ -97,7 +113,15 @@ class EscuchaService : Service() {
             return START_NOT_STICKY
         }
         val minutos = intent?.getIntExtra(EXTRA_MINUTOS, 0) ?: 0
-        val finMs = calcularFin(minutos)
+        val segVentana = intent?.getIntExtra(EXTRA_SEGUNDOS_VENTANA, 0) ?: 0
+        val soloVentana = segVentana > 0
+
+        val finMs = if (soloVentana) {
+            System.currentTimeMillis() + segVentana * 1000L + 2000L
+        } else {
+            calcularFin(minutos)
+        }
+
         if (finMs == null) {
             val ini = Ajustes.horaInicio(this)
             val fin = Ajustes.horaFin(this)
@@ -106,13 +130,17 @@ class EscuchaService : Service() {
             return START_NOT_STICKY
         }
 
+        if (soloVentana && ventanaHastaMs <= System.currentTimeMillis()) {
+            ventanaHastaMs = System.currentTimeMillis() + segVentana * 1000L
+        }
+
         tomarWakeLock(finMs)
         detener = false
         Estado.escuchando = true
         Estado.pausaHastaMs = 0L
         Estado.reanudar = false
         Estado.mensaje = ""
-        val nuevo = Thread({ bucle(finMs, minutos > 0) }, "escucha-viernes")
+        val nuevo = Thread({ bucle(finMs, minutos > 0 || soloVentana, soloVentana) }, "escucha-viernes")
         hilo = nuevo
         nuevo.start()
         return START_NOT_STICKY
@@ -296,7 +324,7 @@ class EscuchaService : Service() {
         }
     }
 
-    private fun bucle(finMs: Long, sinHorario: Boolean) {
+    private fun bucle(finMs: Long, sinHorario: Boolean, soloVentana: Boolean = false) {
         val modelo = cargarModelo()
         val reconocedor = if (modelo != null) crearReconocedor(modelo) else null
         var recVentana: Recognizer? = null
@@ -333,6 +361,9 @@ class EscuchaService : Service() {
             while (!detener && System.currentTimeMillis() < finMs) {
                 if (!sinHorario && !dentroDeHorario()) {
                     Estado.mensaje = "Terminó el horario de escucha."
+                    break
+                }
+                if (soloVentana && ventanaHastaMs == 0L) {
                     break
                 }
                 val ahoraMs = System.currentTimeMillis()
@@ -412,7 +443,7 @@ class EscuchaService : Service() {
                             recVentana.close()
                             recVentana = null
                             ventanaHastaMs = 0L
-                            activar("palabra clave (ventana)")
+                            activarVentana()
                         }
                     }
                 } else {
@@ -480,6 +511,32 @@ class EscuchaService : Service() {
             reconocedor?.close()
             modelo?.close()
             terminar()
+        }
+    }
+
+    private fun activarVentana() {
+        var enviado = false
+        try {
+            val socket = java.net.Socket()
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", MicServidor.PUERTO), 500)
+            socket.soTimeout = 500
+            val salida = socket.getOutputStream()
+            salida.write("despertar\n".toByteArray(Charsets.UTF_8))
+            salida.flush()
+            socket.close()
+            enviado = true
+        } catch (e: Exception) {
+            enviado = false
+        }
+
+        if (enviado) {
+            Estado.ultimaActivacion = hora() + " (despertar tcp)"
+            Estado.fase = "Enviado «despertar» a Viernes"
+            pitido()
+            Estado.reanudar = false
+            Estado.pausaHastaMs = System.currentTimeMillis() + PAUSA_MAXIMA_MS
+        } else {
+            activar("palabra clave (ventana)")
         }
     }
 

@@ -484,7 +484,7 @@ class PantallaService : AccessibilityService() {
 
     private fun ventana(p: JSONObject): JSONObject {
         val seg = p.optInt("segundos", 0)
-        val err = EscuchaService.abrirVentanaSoloViernes(seg)
+        val err = EscuchaService.abrirVentanaSoloViernes(this, seg)
         return if (err == null) respuestaOk() else fallo(err)
     }
 
