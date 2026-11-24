@@ -51,11 +51,19 @@ class EscuchaService : Service() {
         var ventanaHastaMs: Long = 0L
 
         fun abrirVentanaSoloViernes(contexto: android.content.Context, segundos: Int): String? {
+            if (!ModeloVoz.instalado(contexto)) {
+                val err = "Falta el modelo de voz"
+                Estado.mensaje = err
+                return err
+            }
+
             val n = segundos.coerceIn(5, 300)
             val ahora = System.currentTimeMillis()
             if (Estado.escuchando) {
                 if (ventanaHastaMs > ahora) {
-                    return "Ya hay una ventana abierta"
+                    val err = "Ya hay una ventana abierta"
+                    Estado.mensaje = err
+                    return err
                 }
                 ventanaHastaMs = ahora + n * 1000L
                 return null
@@ -74,7 +82,9 @@ class EscuchaService : Service() {
                 null
             } catch (e: Exception) {
                 ventanaHastaMs = 0L
-                "No se pudo iniciar EscuchaService desde segundo plano: " + e.message
+                val err = "No se pudo iniciar EscuchaService desde segundo plano: " + e.message
+                Estado.mensaje = err
+                err
             }
         }
 
@@ -369,9 +379,7 @@ class EscuchaService : Service() {
                 val ahoraMs = System.currentTimeMillis()
                 if (ventanaHastaMs > ahoraMs) {
                     if (!enModoVentana) {
-                        if (!sinHorario && !dentroDeHorario()) {
-                            ventanaHastaMs = 0L
-                        } else if (modelo != null) {
+                        if (modelo != null) {
                             recVentana = crearReconocedorSoloViernes(modelo)
                             if (recVentana != null) {
                                 enModoVentana = true
