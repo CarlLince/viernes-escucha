@@ -65,9 +65,11 @@ class EscuchaService : Service() {
                     Estado.mensaje = err
                     return err
                 }
+                Estado.pausaHastaMs = 0L
                 ventanaHastaMs = ahora + n * 1000L
                 return null
             }
+            Estado.pausaHastaMs = 0L
 
             ventanaHastaMs = ahora + n * 1000L
             val intent = Intent(contexto, EscuchaService::class.java).apply {
@@ -523,29 +525,34 @@ class EscuchaService : Service() {
     }
 
     private fun activarVentana() {
-        var enviado = false
-        try {
-            val socket = java.net.Socket()
-            socket.connect(java.net.InetSocketAddress("127.0.0.1", MicServidor.PUERTO), 500)
-            socket.soTimeout = 500
-            val salida = socket.getOutputStream()
-            salida.write("despertar\n".toByteArray(Charsets.UTF_8))
-            salida.flush()
-            socket.close()
-            enviado = true
-        } catch (e: Exception) {
-            enviado = false
-        }
+        Thread {
+            var exito = false
+            try {
+                val socket = java.net.Socket()
+                socket.connect(java.net.InetSocketAddress("127.0.0.1", 47650), 500)
+                socket.soTimeout = 500
+                val salida = socket.getOutputStream()
+                salida.write("despertar\n".toByteArray(Charsets.UTF_8))
+                salida.flush()
+                val respuesta = socket.getInputStream().bufferedReader(Charsets.UTF_8).readLine() ?: ""
+                socket.close()
+                if (respuesta.startsWith("VIERNES-OK")) {
+                    exito = true
+                }
+            } catch (e: Exception) {
+                exito = false
+            }
 
-        if (enviado) {
-            Estado.ultimaActivacion = hora() + " (despertar tcp)"
-            Estado.fase = "Enviado «despertar» a Viernes"
-            pitido()
-            Estado.reanudar = false
-            Estado.pausaHastaMs = System.currentTimeMillis() + PAUSA_MAXIMA_MS
-        } else {
-            activar("palabra clave (ventana)")
-        }
+            if (exito) {
+                Estado.ultimaActivacion = hora() + " (despertar tcp)"
+                Estado.fase = "Enviado «despertar» a Viernes"
+                pitido()
+                Estado.reanudar = false
+                Estado.pausaHastaMs = System.currentTimeMillis() + PAUSA_MAXIMA_MS
+            } else {
+                activar("palabra clave (ventana)")
+            }
+        }.start()
     }
 
     private fun activar(motivo: String) {
